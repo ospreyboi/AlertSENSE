@@ -1,0 +1,12 @@
+[
+  {"source": "wazuh", "rule_name": "SQL injection attempt", "severity": "high",
+   "src_ip": "45.33.32.156", "dest_ip": "10.0.0.5",
+   "url": "/dvwa/vulnerabilities/sqli/?id=1' UNION SELECT user,password FROM users--",
+   "description": "UNION SELECT in GET parameter id", "timestamp": "2026-10-30T10:15:00"},
+  {"source": "wazuh", "rule_name": "Multiple failed SSH logins", "severity": "medium",
+   "src_ip": "185.220.101.1", "dest_ip": "10.0.0.8",
+   "description": "12 failed logins in 60s", "timestamp": "2026-10-30T10:20:00"},
+  {"source": "edr", "rule_name": "Suspicious file executed", "severity": "critical",
+   "file_hash": "44d88612fea8a8f36de82e1278abb02f",
+   "description": "Unknown binary in /tmp", "timestamp": "2026-10-30T10:25:00"}
+]
