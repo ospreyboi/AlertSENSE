@@ -9,8 +9,8 @@ Open-source AI-powered alert triage and response for SOC teams and small organis
 - [x] Alert intake API with validation (FastAPI + Pydantic)
 - [x] Persistent storage (SQLite) + API-key authentication
 - [x] Web log sensor (SQLi, XSS, path traversal, brute force, scanners)
-- [ ] IOC enrichment (AbuseIPDB, VirusTotal)
-- [ ] ML triage risk score
+- [x] IOC enrichment (AbuseIPDB, VirusTotal)
+- [x] Explainable risk score + priority (ML model planned for v2)
 - [ ] Response: IP blocking (approval / auto), notifications
 - [ ] LLM summaries + MITRE ATT&CK mapping
 - [ ] Dashboard + Docker deploy

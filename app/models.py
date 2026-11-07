@@ -45,10 +45,13 @@ class AlertIn(AlertBase):
 
 
 class Alert(AlertBase, table=True):
-    """What AlertSense stores (adds id, status, scores)."""
+    """What AlertSense stores (adds id, status, triage results)."""
     id: int | None = Field(default=None, primary_key=True)
     status: Status = Status.new
     risk_score: float | None = None
+    priority: str | None = None
+    intel: str | None = None           # JSON text: enrichment results
+    score_reasons: str | None = None   # JSON text: why the score is what it is
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
