@@ -57,3 +57,21 @@ class Alert(AlertBase, table=True):
 
 class StatusUpdate(SQLModel):
     status: Status
+
+
+class Block(SQLModel, table=True):
+    """An IP that the enforcer must refuse until expires_at."""
+    id: int | None = Field(default=None, primary_key=True)
+    ip: str = Field(index=True)
+    reason: str = ""
+    alert_id: int | None = None
+    created_by: str = "analyst"        # "analyst" or "auto"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime
+    active: bool = True
+
+
+class BlockIn(SQLModel):
+    ip: str
+    reason: str = ""
+    hours: int = Field(default=24, ge=1, le=24 * 30)

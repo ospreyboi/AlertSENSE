@@ -7,9 +7,12 @@ from typing import Literal
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from sqlmodel import Session, select
 
+from app.config import AUTO_BLOCK_SCORE, BLOCK_HOURS, NOTIFY_MIN_SCORE
 from app.db import engine, get_session, init_db
 from app.enrich import lookup_hash, lookup_ip
-from app.models import Alert, AlertIn, Severity, Status, StatusUpdate
+from app.models import Alert, AlertIn, Block, BlockIn, Severity, Status, StatusUpdate
+from app.notify import format_alert, notify
+from app.response import BlockRefused, active_blocks, block_ip, unblock_ip
 from app.scoring import priority_for, score_alert
 from app.security import require_api_key
 
@@ -19,14 +22,17 @@ log = logging.getLogger("alertsense")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    mode = f"AUTO (score >= {AUTO_BLOCK_SCORE})" if AUTO_BLOCK_SCORE else "APPROVAL (analyst confirms)"
+    log.warning("AlertSense response mode: %s", mode)
     yield
 
 
-app = FastAPI(title="AlertSense", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="AlertSense", version="0.4.0", lifespan=lifespan)
 
 
+# ---------------------------------------------------------------- triage
 def triage(alert_id: int) -> None:
-    """Enrich + score one alert. Runs in the background after the API has replied."""
+    """Enrich, score, maybe auto-block, maybe notify. Runs after the API has replied."""
     try:
         with Session(engine) as session:
             alert = session.get(Alert, alert_id)
@@ -57,10 +63,30 @@ def triage(alert_id: int) -> None:
                 alert.status = Status.triaged
             session.add(alert)
             session.commit()
+            session.refresh(alert)
+
+            auto_blocked = False
+            if AUTO_BLOCK_SCORE and score >= AUTO_BLOCK_SCORE and alert.src_ip:
+                try:
+                    block_ip(session, alert.src_ip,
+                             reason=f"auto: alert #{alert.id} {alert.rule_name} (score {score})",
+                             alert_id=alert.id, created_by="auto")
+                    alert.status = Status.blocked
+                    session.add(alert)
+                    session.commit()
+                    session.refresh(alert)
+                    auto_blocked = True
+                    log.warning("AUTO-BLOCKED %s (alert #%s, score %s)", alert.src_ip, alert.id, score)
+                except BlockRefused as exc:
+                    log.warning("Auto-block skipped for %s: %s", alert.src_ip, exc)
+
+            if score >= NOTIFY_MIN_SCORE or auto_blocked:
+                notify(format_alert(alert, auto_blocked), key=f"{alert.src_ip}:{alert.rule_name}")
     except Exception:
         log.exception("Triage failed for alert %s", alert_id)
 
 
+# ---------------------------------------------------------------- alerts
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -133,3 +159,58 @@ def update_status(alert_id: int, update: StatusUpdate,
     session.commit()
     session.refresh(alert)
     return alert
+
+
+@app.post("/alerts/{alert_id}/block", response_model=Block,
+          dependencies=[Depends(require_api_key)])
+def block_alert_source(alert_id: int, background: BackgroundTasks,
+                       hours: int = Query(BLOCK_HOURS, ge=1, le=24 * 30),
+                       session: Session = Depends(get_session)):
+    """Analyst approval: block the source IP of this alert."""
+    alert = session.get(Alert, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    if not alert.src_ip:
+        raise HTTPException(status_code=400, detail="Alert has no source IP")
+    try:
+        block = block_ip(session, alert.src_ip, hours=hours, alert_id=alert.id,
+                         reason=f"analyst: alert #{alert.id} {alert.rule_name}")
+    except BlockRefused as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    alert.status = Status.blocked
+    session.add(alert)
+    session.commit()
+    session.refresh(block)
+    background.add_task(notify, f"🛑 AlertSense: {block.ip} blocked for {hours}h "
+                                f"(alert #{alert.id} {alert.rule_name})")
+    return block
+
+
+# ---------------------------------------------------------------- blocklist
+@app.get("/blocks", response_model=list[Block], dependencies=[Depends(require_api_key)])
+def list_blocks(session: Session = Depends(get_session)):
+    """Active, non-expired blocks. The enforcer polls this."""
+    return active_blocks(session)
+
+
+@app.post("/blocks", response_model=Block, status_code=201,
+          dependencies=[Depends(require_api_key)])
+def create_block(data: BlockIn, background: BackgroundTasks,
+                 session: Session = Depends(get_session)):
+    try:
+        block = block_ip(session, data.ip, reason=data.reason or "manual", hours=data.hours)
+    except BlockRefused as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    background.add_task(notify, f"🛑 AlertSense: {block.ip} blocked manually for {data.hours}h")
+    return block
+
+
+@app.delete("/blocks/{ip}", dependencies=[Depends(require_api_key)])
+def delete_block(ip: str, session: Session = Depends(get_session)):
+    try:
+        n = unblock_ip(session, ip)
+    except BlockRefused as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    if n == 0:
+        raise HTTPException(status_code=404, detail="No active block for this IP")
+    return {"unblocked": ip, "count": n}
