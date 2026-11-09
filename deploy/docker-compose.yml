@@ -1,0 +1,27 @@
+# Production-style deployment of AlertSense.
+#   docker compose -f deploy/docker-compose.yml up -d --build
+# The enforcer runs on the web server itself (it needs to reload Nginx), see README.
+services:
+  alertsense:
+    build: ..
+    env_file: ../.env
+    environment:
+      ALERTSENSE_DB_URL: sqlite:////data/alertsense.db
+    volumes:
+      - alertsense-data:/data
+    network_mode: host          # API on 127.0.0.1:8000
+    restart: unless-stopped
+
+  sensor:
+    build: ..
+    command: ["python", "-m", "sensors.web_sensor", "--log", "/logs/access.log", "--site", "${SITE_NAME:-my-website}"]
+    env_file: ../.env
+    volumes:
+      - ${ACCESS_LOG_DIR:-../lab/logs}:/logs:ro   # folder containing the web server's access.log
+    network_mode: host
+    depends_on:
+      - alertsense
+    restart: unless-stopped
+
+volumes:
+  alertsense-data:

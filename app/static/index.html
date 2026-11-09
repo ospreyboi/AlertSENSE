@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AlertSense</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+  <header>
+    <h1>AlertSense</h1>
+    <span id="mode" class="pill"></span>
+    <span id="updated" class="muted"></span>
+    <span id="error" class="error"></span>
+    <button id="logout" type="button">Change key</button>
+  </header>
+
+  <section id="login" class="card login" hidden>
+    <h2>Connect</h2>
+    <form id="keyform">
+      <label>API key <input id="key" type="password" autocomplete="off" required></label>
+      <button type="submit">Connect</button>
+    </form>
+    <p class="muted">The key is kept only in this browser tab and is cleared when you close it.</p>
+    <p id="login-msg" class="error"></p>
+  </section>
+
+  <main id="app" hidden>
+    <section class="kpis">
+      <div class="kpi"><span id="k-open">–</span><label>Open alerts</label></div>
+      <div class="kpi critical"><span id="k-critical">–</span><label>Critical</label></div>
+      <div class="kpi high"><span id="k-high">–</span><label>High</label></div>
+      <div class="kpi"><span id="k-24h">–</span><label>Alerts (24h)</label></div>
+      <div class="kpi"><span id="k-blocks">–</span><label>Active blocks</label></div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <div class="card-head">
+          <h2>Alert queue <small class="muted">highest risk first</small></h2>
+          <select id="f-status" aria-label="Filter by status">
+            <option value="">All statuses</option>
+            <option value="triaged">Triaged</option>
+            <option value="new">New</option>
+            <option value="blocked">Blocked</option>
+            <option value="resolved">Resolved</option>
+            <option value="false_positive">False positive</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Score</th><th>Priority</th><th>Rule</th><th>Source IP</th><th>Status</th><th>Event time</th><th>Actions</th></tr></thead>
+            <tbody id="alerts"></tbody>
+          </table>
+          <p id="empty" class="muted" hidden>No alerts yet. Run ./lab/attack_demo.sh</p>
+        </div>
+      </div>
+
+      <aside>
+        <div class="card"><h2>Alert details</h2><div id="detail" class="muted">Click an alert to see why it scored what it did.</div></div>
+        <div class="card"><h2>Active blocks</h2><ul id="blocks" class="list"></ul></div>
+        <div class="card"><h2>Top source IPs (24h)</h2><ul id="topips" class="list"></ul></div>
+      </aside>
+    </section>
+  </main>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

@@ -4,3 +4,5 @@ __pycache__/
 *.db
 lab/logs/
 lab/blocklist/
+run/
+day5.sh

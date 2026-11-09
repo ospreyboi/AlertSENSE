@@ -13,7 +13,7 @@ Open-source AI-powered alert triage and response for SOC teams and small organis
 - [x] Explainable risk score + priority (ML model planned for v2)
 - [x] Response: IP blocking (approval / auto), Nginx enforcer, Telegram/Slack notifications
 - [ ] LLM summaries + MITRE ATT&CK mapping
-- [ ] Dashboard + Docker deploy
+- [x] Web dashboard + Docker deploy
 
 ## Run (GitHub Codespaces)
 1. Code → Codespaces → Create codespace
@@ -46,3 +46,19 @@ applies it to Nginx (`deny <ip>;`). The API never needs shell access to your ser
 | `ALERTSENSE_BLOCK_HOURS` | `24` | Blocks expire automatically |
 | `ALERTSENSE_ALLOWLIST` | `127.0.0.1,::1` | IPs that can never be blocked |
 | `ALERTSENSE_NOTIFY_MIN_SCORE` | `60` | Minimum score for a notification |
+
+## Dashboard
+Open `http://<server>:8000/` and enter the API key. Live alert queue (highest risk first),
+score explanations, threat intel, and one-click Block / Resolve / False-positive.
+All attacker-controlled data is rendered as text only, plus a strict Content-Security-Policy.
+
+## Quick start (demo)
+    ./scripts/run_all.sh      # lab + API + sensor + enforcer in the background
+    ./lab/attack_demo.sh      # simulated attacks
+    ./scripts/stop_all.sh
+
+## Deploy with Docker
+    cp .env.example .env      # set ALERTSENSE_API_KEY and optional intel/notification keys
+    ACCESS_LOG_DIR=/var/log/nginx SITE_NAME=my-site docker compose -f deploy/docker-compose.yml up -d --build
+    # on the web server:
+    python -m sensors.enforcer --file /etc/nginx/alertsense/blocklist.conf --reload-cmd "nginx -s reload"

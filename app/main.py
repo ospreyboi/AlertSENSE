@@ -214,3 +214,60 @@ def delete_block(ip: str, session: Session = Depends(get_session)):
     if n == 0:
         raise HTTPException(status_code=404, detail="No active block for this IP")
     return {"unblocked": ip, "count": n}
+
+
+# dashboard (D5)
+from pathlib import Path  # noqa: E402
+
+from fastapi.responses import FileResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from sqlalchemy import func  # noqa: E402
+
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+SECURITY_HEADERS = {
+    # Only scripts/styles from this server may run: a stored-XSS payload cannot execute.
+    "Content-Security-Policy": ("default-src 'self'; script-src 'self'; style-src 'self'; "
+                                "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+@app.get("/", include_in_schema=False)
+def dashboard():
+    return FileResponse(STATIC_DIR / "index.html", headers=SECURITY_HEADERS)
+
+
+@app.get("/stats", dependencies=[Depends(require_api_key)])
+def stats(session: Session = Depends(get_session)):
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    total = session.exec(select(func.count(Alert.id))).one()
+    last_24h = session.exec(select(func.count(Alert.id)).where(Alert.created_at >= since)).one()
+    open_count = session.exec(
+        select(func.count(Alert.id)).where(Alert.status.in_([Status.new, Status.triaged]))
+    ).one()
+    by_priority = {
+        str(p or "pending"): n
+        for p, n in session.exec(select(Alert.priority, func.count(Alert.id)).group_by(Alert.priority)).all()
+    }
+    top_ips = [
+        [ip, n]
+        for ip, n in session.exec(
+            select(Alert.src_ip, func.count(Alert.id))
+            .where(Alert.src_ip.is_not(None), Alert.created_at >= since)
+            .group_by(Alert.src_ip)
+            .order_by(func.count(Alert.id).desc())
+            .limit(5)
+        ).all()
+    ]
+    return {
+        "total": total,
+        "last_24h": last_24h,
+        "open": open_count,
+        "by_priority": by_priority,
+        "active_blocks": len(active_blocks(session)),
+        "top_ips": top_ips,
+        "auto_block_score": AUTO_BLOCK_SCORE,
+    }
