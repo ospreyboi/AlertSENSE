@@ -1,69 +1,255 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AlertSense</title>
+  <meta name="color-scheme" content="light dark">
+  <title>AlertSense · Security Operations</title>
   <link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
-  <header>
-    <h1>AlertSense</h1>
-    <span id="mode" class="pill"></span>
-    <span id="updated" class="muted"></span>
-    <span id="error" class="error"></span>
-    <button id="logout" type="button">Change key</button>
-  </header>
+  <a class="skip-link" href="#main">Skip to main content</a>
 
-  <section id="login" class="card login" hidden>
-    <h2>Connect</h2>
-    <form id="keyform">
-      <label>API key <input id="key" type="password" autocomplete="off" required></label>
-      <button type="submit">Connect</button>
-    </form>
-    <p class="muted">The key is kept only in this browser tab and is cleared when you close it.</p>
-    <p id="login-msg" class="error"></p>
-  </section>
-
-  <main id="app" hidden>
-    <section class="kpis">
-      <div class="kpi"><span id="k-open">–</span><label>Open alerts</label></div>
-      <div class="kpi critical"><span id="k-critical">–</span><label>Critical</label></div>
-      <div class="kpi high"><span id="k-high">–</span><label>High</label></div>
-      <div class="kpi"><span id="k-24h">–</span><label>Alerts (24h)</label></div>
-      <div class="kpi"><span id="k-blocks">–</span><label>Active blocks</label></div>
-    </section>
-
-    <section class="grid">
-      <div class="card">
-        <div class="card-head">
-          <h2>Alert queue <small class="muted">highest risk first</small></h2>
-          <select id="f-status" aria-label="Filter by status">
-            <option value="">All statuses</option>
-            <option value="triaged">Triaged</option>
-            <option value="new">New</option>
-            <option value="blocked">Blocked</option>
-            <option value="resolved">Resolved</option>
-            <option value="false_positive">False positive</option>
-          </select>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Score</th><th>Priority</th><th>Rule</th><th>Source IP</th><th>Status</th><th>Event time</th><th>Actions</th></tr></thead>
-            <tbody id="alerts"></tbody>
-          </table>
-          <p id="empty" class="muted" hidden>No alerts yet. Run ./lab/attack_demo.sh</p>
-        </div>
+  <!-- =============================================================== sign in -->
+  <div id="login" class="login" hidden>
+    <form id="keyform" class="login-box" novalidate>
+      <div class="login-brand"><span class="logo" data-icon="shield" data-size="18"></span>AlertSense</div>
+      <h1>Sign in</h1>
+      <p class="text-muted">Security Operations Console</p>
+      <div class="field">
+        <label for="key">API key</label>
+        <input id="key" name="key" type="password" autocomplete="off" spellcheck="false" required aria-describedby="key-help login-msg">
+        <p id="key-help" class="help">The value of <code>ALERTSENSE_API_KEY</code> on the server. Stored for this browser tab only.</p>
+        <p id="login-msg" class="field-error" role="alert"></p>
       </div>
+      <button id="login-btn" class="btn btn-primary btn-block" type="submit">Sign in</button>
+    </form>
+  </div>
 
-      <aside>
-        <div class="card"><h2>Alert details</h2><div id="detail" class="muted">Click an alert to see why it scored what it did.</div></div>
-        <div class="card"><h2>Active blocks</h2><ul id="blocks" class="list"></ul></div>
-        <div class="card"><h2>Top source IPs (24h)</h2><ul id="topips" class="list"></ul></div>
-      </aside>
-    </section>
-  </main>
+  <!-- =============================================================== app -->
+  <div id="app" class="app" hidden>
+    <header class="masthead">
+      <div class="masthead-left">
+        <a class="product" href="#overview"><span class="logo" data-icon="shield" data-size="16"></span><span>AlertSense</span></a>
+        <span class="divider" aria-hidden="true"></span>
+        <span class="workspace" title="Monitored workspace"><span class="text-dim">Workspace</span> lab-nginx</span>
+      </div>
+      <div class="masthead-right">
+        <span id="conn" class="conn"><span class="dot" aria-hidden="true"></span><span id="conn-text">Connecting</span></span>
+        <button id="btn-pause" class="mh-btn" type="button" aria-pressed="false"><span data-icon="pause"></span><span class="label">Pause</span></button>
+        <button id="btn-theme" class="mh-btn mh-icon" type="button" aria-label="Switch to dark theme" title="Switch theme"><span data-icon="moon"></span></button>
+        <button id="btn-logout" class="mh-btn" type="button"><span data-icon="logout"></span><span class="label">Sign out</span></button>
+      </div>
+    </header>
 
+    <div class="body">
+      <nav class="rail" aria-label="Primary">
+        <p class="rail-heading">Security operations</p>
+        <a class="rail-link is-active" href="#overview" data-nav="overview"><span data-icon="grid"></span>Overview</a>
+        <a class="rail-link" href="#alerts" data-nav="alerts"><span data-icon="list"></span>Alerts<span class="rail-count" id="nav-open"></span></a>
+        <a class="rail-link" href="#blocklist" data-nav="blocklist"><span data-icon="ban"></span>Blocklist<span class="rail-count" id="nav-blocks"></span></a>
+        <div class="rail-foot">
+          <p class="rail-heading">Response policy</p>
+          <div id="mode" class="policy"></div>
+        </div>
+      </nav>
+
+      <main id="main" tabindex="-1">
+        <p id="sr-status" class="sr-only" role="status" aria-atomic="true"></p>
+        <div id="banner" class="banner" role="alert" hidden></div>
+
+        <div class="page-head">
+          <div>
+            <p class="crumbs">AlertSense <span aria-hidden="true">/</span> Security operations</p>
+            <h1>Security overview</h1>
+          </div>
+          <div class="page-tools">
+            <span id="updated" class="text-muted small">Waiting for data</span>
+            <div class="seg" role="group" aria-label="Time range" id="range">
+              <button type="button" data-range="1" aria-pressed="false">1h</button>
+              <button type="button" data-range="24" aria-pressed="true">24h</button>
+              <button type="button" data-range="168" aria-pressed="false">7d</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- --------------------------------------------------------- overview -->
+        <section id="overview" aria-labelledby="h-overview" class="stack">
+          <h2 id="h-overview" class="sr-only">Overview</h2>
+          <dl class="kpi-strip">
+            <div class="kpi"><dt>Open alerts</dt><dd id="k-open">–</dd><p class="kpi-note" id="k-open-note">&nbsp;</p></div>
+            <div class="kpi"><dt><span class="sev-sq sev-critical" aria-hidden="true"></span>Critical open</dt><dd id="k-critical">–</dd><p class="kpi-note" id="k-critical-note">&nbsp;</p></div>
+            <div class="kpi"><dt><span class="sev-sq sev-high" aria-hidden="true"></span>High open</dt><dd id="k-high">–</dd><p class="kpi-note" id="k-high-note">&nbsp;</p></div>
+            <div class="kpi"><dt id="k-range-label">Alerts, last 24h</dt><dd id="k-range">–</dd><p class="kpi-note" id="k-range-note">&nbsp;</p></div>
+            <div class="kpi"><dt>Mean risk score</dt><dd id="k-risk">–</dd><p class="kpi-note" id="k-risk-note">&nbsp;</p></div>
+            <div class="kpi"><dt>Active blocks</dt><dd id="k-blocks">–</dd><p class="kpi-note" id="k-blocks-note">&nbsp;</p></div>
+          </dl>
+
+          <div class="grid">
+            <article class="panel col-8">
+              <header class="panel-head">
+                <h3 id="h-trend">Alert trend</h3>
+                <ul class="legend" aria-label="Series">
+                  <li><span class="lg lg-all" aria-hidden="true"></span>All alerts</li>
+                  <li><span class="lg lg-crit" aria-hidden="true"></span>Critical + high</li>
+                </ul>
+              </header>
+              <div id="chart" class="chart" aria-describedby="chart-summary"></div>
+              <p id="chart-summary" class="panel-foot text-muted small"></p>
+            </article>
+            <article class="panel col-4">
+              <header class="panel-head"><h3>Severity distribution</h3><span class="text-muted small" id="sev-scope"></span></header>
+              <div class="panel-pad">
+                <div id="sev-bar" class="sev-bar" role="img"></div>
+                <table class="mini">
+                  <thead><tr><th scope="col">Severity</th><th scope="col" class="num">Alerts</th><th scope="col" class="num">Share</th><th scope="col" class="num">Open</th></tr></thead>
+                  <tbody id="sev-body"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="panel col-6">
+              <header class="panel-head"><h3>MITRE ATT&amp;CK techniques</h3><span class="text-muted small" id="mitre-scope"></span></header>
+              <table class="mini mini-flush">
+                <thead><tr><th scope="col">Technique</th><th scope="col">Name</th><th scope="col" class="num">Alerts</th><th scope="col" class="w-bar"><span class="sr-only">Relative volume</span></th></tr></thead>
+                <tbody id="mitre-body"></tbody>
+              </table>
+            </article>
+            <article class="panel col-6">
+              <header class="panel-head"><h3>Top source addresses</h3><span class="text-muted small" id="ip-scope"></span></header>
+              <table class="mini mini-flush">
+                <thead><tr><th scope="col">Source IP</th><th scope="col" class="num">Alerts</th><th scope="col" class="num hide-sm">Max risk</th><th scope="col">State</th><th scope="col" class="act"><span class="sr-only">Action</span></th></tr></thead>
+                <tbody id="ip-body"></tbody>
+              </table>
+            </article>
+          </div>
+        </section>
+
+        <!-- --------------------------------------------------------- alerts -->
+        <section id="alerts" class="panel" aria-labelledby="h-alerts">
+          <header class="panel-head">
+            <h2 id="h-alerts">Alerts <span class="count" id="alert-count"></span></h2>
+            <div class="head-actions">
+              <button id="btn-export" class="btn btn-sm" type="button"><span data-icon="download"></span>Export CSV</button>
+              <button id="btn-refresh" class="btn btn-sm" type="button"><span data-icon="refresh"></span>Refresh</button>
+            </div>
+          </header>
+          <div class="toolbar">
+            <div class="search">
+              <span data-icon="search" aria-hidden="true"></span>
+              <label class="sr-only" for="q">Search alerts</label>
+              <input id="q" type="search" placeholder="Search by rule, IP, URL, technique or ID" autocomplete="off">
+              <kbd aria-hidden="true">/</kbd>
+            </div>
+            <label class="select-label">Severity
+              <select id="f-sev">
+                <option value="">All</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+              </select>
+            </label>
+            <label class="select-label">Status
+              <select id="f-status">
+                <option value="open">Open</option><option value="">All</option><option value="new">New</option><option value="triaged">Triaged</option>
+                <option value="blocked">Blocked</option><option value="resolved">Resolved</option><option value="false_positive">False positive</option>
+              </select>
+            </label>
+            <button id="btn-clear" class="btn btn-link btn-sm" type="button" hidden>Clear filters</button>
+          </div>
+          <div id="bulkbar" class="bulkbar" hidden>
+            <span id="bulk-count" class="bulk-count"></span>
+            <button type="button" class="btn btn-sm" id="bulk-resolve"><span data-icon="check"></span>Resolve</button>
+            <button type="button" class="btn btn-sm" id="bulk-fp"><span data-icon="flag"></span>False positive</button>
+            <button type="button" class="btn btn-sm btn-danger-outline" id="bulk-block"><span data-icon="ban"></span>Block source IPs</button>
+            <button type="button" class="btn btn-link btn-sm" id="bulk-clear">Clear selection</button>
+          </div>
+          <div class="table-wrap">
+            <table class="grid-table" id="alerts-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="c-check"><input type="checkbox" id="sel-all" aria-label="Select all alerts on this page"></th>
+                  <th scope="col" data-sort="severity" class="sortable"><button type="button">Severity</button></th>
+                  <th scope="col" data-sort="risk" class="sortable num"><button type="button">Risk</button></th>
+                  <th scope="col" data-sort="rule" class="sortable"><button type="button">Alert</button></th>
+                  <th scope="col" class="hide-sm">Technique</th>
+                  <th scope="col" data-sort="ip" class="sortable"><button type="button">Source IP</button></th>
+                  <th scope="col" data-sort="status" class="sortable hide-sm"><button type="button">Status</button></th>
+                  <th scope="col" data-sort="time" class="sortable"><button type="button">Last seen</button></th>
+                  <th scope="col" class="c-act"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="alerts-body"></tbody>
+            </table>
+            <div id="alerts-empty" class="empty" hidden></div>
+          </div>
+          <footer class="pager">
+            <label class="select-label">Rows per page
+              <select id="page-size"><option>25</option><option selected>50</option><option>100</option></select>
+            </label>
+            <span id="page-info" class="text-muted"></span>
+            <div class="pager-btns">
+              <button type="button" class="btn btn-sm btn-icon" id="pg-prev" aria-label="Previous page"><span data-icon="chevLeft"></span></button>
+              <button type="button" class="btn btn-sm btn-icon" id="pg-next" aria-label="Next page"><span data-icon="chevRight"></span></button>
+            </div>
+          </footer>
+        </section>
+
+        <!-- --------------------------------------------------------- blocklist -->
+        <section id="blocklist" class="panel" aria-labelledby="h-blocks">
+          <header class="panel-head">
+            <h2 id="h-blocks">Blocklist <span class="count" id="block-count"></span></h2>
+            <span class="text-muted small">Enforced at the Nginx edge · enforcer sync every 5 s</span>
+          </header>
+          <div class="table-wrap">
+            <table class="grid-table">
+              <thead>
+                <tr>
+                  <th scope="col">IP address</th><th scope="col">Origin</th><th scope="col" class="hide-sm">Reason</th>
+                  <th scope="col" class="hide-sm">Added</th><th scope="col">Expires</th><th scope="col" class="c-act"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="blocks-body"></tbody>
+            </table>
+            <div id="blocks-empty" class="empty" hidden></div>
+          </div>
+        </section>
+
+        <footer class="page-foot text-muted small">AlertSense · alert triage and automated response</footer>
+      </main>
+    </div>
+  </div>
+
+  <!-- =============================================================== flyout -->
+  <div id="scrim" class="scrim" hidden></div>
+  <aside id="flyout" class="flyout" role="dialog" aria-modal="false" aria-labelledby="fly-title" hidden>
+    <header class="fly-head">
+      <div class="fly-titles">
+        <p class="fly-eyebrow" id="fly-eyebrow"></p>
+        <h2 id="fly-title"></h2>
+        <div class="fly-meta" id="fly-meta"></div>
+      </div>
+      <button id="fly-close" class="btn btn-icon btn-ghost" type="button" aria-label="Close alert details"><span data-icon="x"></span></button>
+    </header>
+    <div class="tabs" role="tablist" aria-label="Alert details">
+      <button type="button" role="tab" id="tab-summary" aria-controls="pane" aria-selected="true" data-tab="summary">Summary</button>
+      <button type="button" role="tab" id="tab-evidence" aria-controls="pane" aria-selected="false" data-tab="evidence" tabindex="-1">Evidence</button>
+      <button type="button" role="tab" id="tab-intel" aria-controls="pane" aria-selected="false" data-tab="intel" tabindex="-1">Threat intel</button>
+      <button type="button" role="tab" id="tab-raw" aria-controls="pane" aria-selected="false" data-tab="raw" tabindex="-1">Raw</button>
+    </div>
+    <div class="fly-body" id="pane" role="tabpanel" tabindex="0"></div>
+    <footer class="fly-foot" id="fly-foot"></footer>
+  </aside>
+
+  <dialog id="confirm" class="modal" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+    <form method="dialog">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text"></p>
+      <div class="modal-actions">
+        <button class="btn" value="cancel">Cancel</button>
+        <button class="btn btn-danger" value="ok" id="confirm-ok">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
   <script src="/static/dashboard.js"></script>
 </body>
 </html>
