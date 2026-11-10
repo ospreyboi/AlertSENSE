@@ -35,6 +35,7 @@
     arrowUp: ["m5 12 7-7 7 7", "M12 19V5"],
     arrowDown: ["M12 5v14", "m19 12-7 7-7-7"],
     upDown: ["m7 15 5 5 5-5", "m7 9 5-5 5 5"],
+    building: ["M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z", "M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2", "M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2", "M10 6h4", "M10 10h4", "M10 14h4", "M10 18h4"],
   };
 
   const SEVS = ["critical", "high", "medium", "low"];
@@ -57,6 +58,16 @@
     sort: { key: "risk", dir: "desc" }, page: 0, pageSize: 50, selected: new Set(),
     paused: false, timer: null, online: null, lastOk: null,
     openId: null, tab: "summary", returnFocus: null, lastSr: "",
+    auth: { mode: "", csrf: "", user: null, cfg: { oidc: false, provider: null, api_key_login: true } },
+  };
+  const authed = () => Boolean(state.key || state.auth.user);
+  const canRespond = () => state.auth.mode !== "session" || state.auth.user?.role === "responder";
+  const AUTH_ERRORS = {
+    denied: "Sign-in was cancelled at your organisation's login page.",
+    domain: "That account is not from an allowed domain for this console.",
+    no_role: "Your account signed in, but it has not been given an AlertSense role. Ask your administrator.",
+    login_failed: "Single sign-on failed. Please try again.",
+    provider_unreachable: "The identity provider could not be reached. Try again later.",
   };
 
   // ------------------------------------------------------------------ helpers
@@ -160,13 +171,21 @@
   async function api(path, opts = {}) {
     let res;
     try {
-      res = await fetch(path, { ...opts, headers: { "X-API-Key": state.key, "Content-Type": "application/json" } });
+      const headers = { "Content-Type": "application/json" };
+      if (state.key) headers["X-API-Key"] = state.key;
+      if (state.auth.csrf) headers["X-CSRF-Token"] = state.auth.csrf;
+      res = await fetch(path, { ...opts, headers, credentials: "same-origin" });
     } catch (_) {
       throw Object.assign(new Error("The AlertSense API is unreachable."), { network: true });
     }
     if (res.status === 401) {
-      signOut("The API key was rejected. Check ALERTSENSE_API_KEY on the server.");
+      signOut(state.auth.mode === "session" ? "Your session has expired. Sign in again." : "The API key was rejected. Check ALERTSENSE_API_KEY on the server.", false);
       throw Object.assign(new Error("unauthorized"), { auth: true });
+    }
+    if (res.status === 403) {
+      let detail = "";
+      try { detail = (await res.json()).detail; } catch (_) { /* not JSON */ }
+      throw new Error(typeof detail === "string" && detail ? `Not permitted: ${detail}.` : "Your role does not permit this action.");
     }
     if (!res.ok) {
       let detail = "";
@@ -183,18 +202,66 @@
     $("app").hidden = true;
     $("login").hidden = false;
     $("login-msg").textContent = msg || "";
-    $("key").focus();
+    (state.auth.cfg.oidc ? $("sso-btn") : $("key")).focus();
   }
   function showApp() {
     $("login").hidden = true;
     $("app").hidden = false;
+    const u = state.auth.user;
+    $("user").hidden = !u;
+    if (u) {
+      $("user-name").textContent = u.name || u.email;
+      $("user").title = u.email || "";
+      $("user-role").textContent = u.role === "responder" ? "Responder" : "Viewer";
+    }
+    document.body.classList.toggle("is-readonly", !canRespond());
     refresh();
     startTimer();
   }
-  function signOut(msg) {
+  async function signOut(msg, callServer = true) {
+    const wasSession = state.auth.mode === "session";
+    if (wasSession && callServer) {
+      try { await fetch("/auth/logout", { method: "POST", credentials: "same-origin", headers: { "X-CSRF-Token": state.auth.csrf } }); } catch (_) { /* offline */ }
+    }
     state.key = "";
+    state.auth.mode = ""; state.auth.csrf = ""; state.auth.user = null;
     store.del(KEY_STORE);
     showLogin(msg);
+  }
+
+  function applyAuthConfig(cfg) {
+    state.auth.cfg = cfg;
+    $("sso-btn").hidden = !cfg.oidc;
+    $("sso-note").hidden = !cfg.oidc;
+    $("sso-label").textContent = cfg.provider ? `Sign in with ${cfg.provider}` : "Sign in with single sign-on";
+    $("keyform").hidden = !cfg.api_key_login;
+    $("login-or").hidden = !(cfg.oidc && cfg.api_key_login);
+    $("login-btn").className = `btn ${cfg.oidc ? "" : "btn-primary "}btn-block`;
+  }
+
+  async function boot() {
+    let cfg = { oidc: false, provider: null, api_key_login: true };
+    try { const r = await fetch("/auth/config", { credentials: "same-origin" }); if (r.ok) cfg = await r.json(); } catch (_) { /* older server */ }
+    applyAuthConfig(cfg);
+
+    const params = new URLSearchParams(location.search);
+    const err = params.get("auth_error");
+    if (err) history.replaceState(null, "", location.pathname + location.hash);
+
+    if (cfg.oidc) {
+      try {
+        const r = await fetch("/auth/me", { credentials: "same-origin" });
+        if (r.ok) {
+          const me = await r.json();
+          state.auth = { ...state.auth, mode: "session", csrf: me.csrf || "", user: me };
+          showApp();
+          return;
+        }
+      } catch (_) { /* fall through to sign-in */ }
+    }
+    state.key = cfg.api_key_login ? store.get(KEY_STORE) || "" : "";
+    if (state.key) { state.auth.mode = "key"; showApp(); }
+    else showLogin(err ? (AUTH_ERRORS[err] || AUTH_ERRORS.login_failed) : "");
   }
 
   // ------------------------------------------------------------------ polling
@@ -207,7 +274,7 @@
 
   let inflight = false, again = false;
   async function refresh() {
-    if (!state.key) return;
+    if (!authed()) return;
     if (inflight) { again = true; return; }
     inflight = true;
     try {
@@ -402,7 +469,7 @@
         h("td", { class: "num", text: fmt(e.n) }),
         h("td", { class: "num hide-sm", text: Math.round(e.max) }),
         h("td", {}, isB ? h("span", { class: "state is-blocked" }, icon("ban", 13), "Blocked") : h("span", { class: "state", text: "Allowed" })),
-        h("td", { class: "act" }, isB
+        h("td", { class: "act requires-responder" }, isB
           ? h("button", { type: "button", class: "btn btn-sm", onclick: () => doUnblock(ip) }, "Unblock")
           : h("button", { type: "button", class: "btn btn-sm btn-danger-outline", onclick: () => doBlockIp(ip) }, "Block")));
     }));
@@ -471,7 +538,7 @@
       const cb = h("input", { type: "checkbox", "aria-label": `Select alert ${a.id}`, checked: sel,
         onclick: (e) => e.stopPropagation(),
         onchange: (e) => { if (e.target.checked) state.selected.add(a.id); else state.selected.delete(a.id); renderAlerts(); } });
-      const acts = h("div", { class: "row-actions" });
+      const acts = h("div", { class: "row-actions requires-responder" });
       if (a.src_ip && !ipBlocked) acts.append(rowBtn("ban", `Block ${a.src_ip}`, () => doBlockAlert(a), "is-danger"));
       if (isOpen(a)) {
         acts.append(rowBtn("check", `Resolve alert ${a.id}`, () => doStatus([a], "resolved")));
@@ -483,7 +550,7 @@
         onclick: () => openFlyout(a.id, tr),
         onkeydown: (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === tr) { e.preventDefault(); openFlyout(a.id, tr); } },
       },
-        h("td", { class: "c-check" }, cb),
+        h("td", { class: "c-check requires-responder" }, cb),
         h("td", {}, sevCell(sev)),
         h("td", { class: "num" }, h("span", { class: `risk r-${sev}`, text: a.risk_score == null ? "…" : Math.round(a.risk_score) })),
         h("td", {}, h("div", { class: "alert-cell" }, h("span", { class: "alert-id", text: `#${a.id}` }), h("span", { class: "rule", title: a.rule_name, text: a.rule_name }))),
@@ -502,7 +569,7 @@
     all.indeterminate = nSel > 0 && nSel < pageIds.length;
     all.disabled = pageIds.length === 0;
 
-    $("bulkbar").hidden = state.selected.size === 0;
+    $("bulkbar").hidden = state.selected.size === 0 || !canRespond();
     $("bulk-count").textContent = `${state.selected.size} selected`;
 
     const empty = $("alerts-empty");
@@ -530,7 +597,7 @@
         h("td", { class: "hide-sm" }, h("span", { class: "text-muted", title: b.reason || "", text: b.reason || "—" })),
         h("td", { class: "hide-sm text-muted", title: stamp(add), text: ago(add) }),
         h("td", { title: stamp(exp), text: exp ? ago(exp) : "Never" }),
-        h("td", { class: "c-act" }, h("button", { type: "button", class: "btn btn-sm", onclick: () => doUnblock(b.ip) }, "Unblock")));
+        h("td", { class: "c-act requires-responder" }, h("button", { type: "button", class: "btn btn-sm", onclick: () => doUnblock(b.ip) }, "Unblock")));
     }));
     const empty = $("blocks-empty");
     empty.replaceChildren(h("strong", { text: "No active blocks" }), h("span", { text: "Addresses blocked automatically or by an analyst are listed here until they expire." }));
@@ -784,6 +851,7 @@
       try {
         await api("/stats");
         store.set(KEY_STORE, k);
+        state.auth.mode = "key";
         $("key").value = ""; $("login-msg").textContent = "";
         showApp();
       } catch (err) {
@@ -849,13 +917,12 @@
       if (e.key === "/" && !["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName) && !$("app").hidden) { e.preventDefault(); $("q").focus(); }
     });
     document.addEventListener("visibilitychange", () => {
-      if (!state.key) return;
+      if (!authed()) return;
       if (document.hidden) stopTimer(); else if (!state.paused) { refresh(); startTimer(); }
     });
 
     initNav();
-    state.key = store.get(KEY_STORE) || "";
-    if (state.key) showApp(); else showLogin("");
+    boot();
   }
 
   init();

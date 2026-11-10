@@ -271,3 +271,7 @@ def stats(session: Session = Depends(get_session)):
         "top_ips": top_ips,
         "auto_block_score": AUTO_BLOCK_SCORE,
     }
+
+# --- OAuth2 / OIDC single sign-on (docs/SSO.md) -- keep this at the very end of the file ---
+from app.auth_oidc import install_auth  # noqa: E402
+install_auth(app)

@@ -12,18 +12,25 @@
 
   <!-- =============================================================== sign in -->
   <div id="login" class="login" hidden>
-    <form id="keyform" class="login-box" novalidate>
+    <div class="login-box">
       <div class="login-brand"><span class="logo" data-icon="shield" data-size="18"></span>AlertSense</div>
       <h1>Sign in</h1>
       <p class="text-muted">Security Operations Console</p>
-      <div class="field">
-        <label for="key">API key</label>
-        <input id="key" name="key" type="password" autocomplete="off" spellcheck="false" required aria-describedby="key-help login-msg">
-        <p id="key-help" class="help">The value of <code>ALERTSENSE_API_KEY</code> on the server. Stored for this browser tab only.</p>
-        <p id="login-msg" class="field-error" role="alert"></p>
-      </div>
-      <button id="login-btn" class="btn btn-primary btn-block" type="submit">Sign in</button>
-    </form>
+      <p id="login-msg" class="field-error" role="alert"></p>
+      <a id="sso-btn" class="btn btn-primary btn-block" href="/auth/login" hidden>
+        <span data-icon="building"></span><span id="sso-label">Sign in with single sign-on</span>
+      </a>
+      <p id="sso-note" class="help sso-note" hidden>You will be redirected to your organisation's sign-in page (OAuth 2.0 / OpenID Connect).</p>
+      <div id="login-or" class="login-or" hidden><span>or use an API key</span></div>
+      <form id="keyform" novalidate>
+        <div class="field">
+          <label for="key">API key</label>
+          <input id="key" name="key" type="password" autocomplete="off" spellcheck="false" required aria-describedby="key-help login-msg">
+          <p id="key-help" class="help">The value of <code>ALERTSENSE_API_KEY</code> on the server. Stored for this browser tab only.</p>
+        </div>
+        <button id="login-btn" class="btn btn-primary btn-block" type="submit">Sign in with API key</button>
+      </form>
+    </div>
   </div>
 
   <!-- =============================================================== app -->
@@ -35,6 +42,7 @@
         <span class="workspace" title="Monitored workspace"><span class="text-dim">Workspace</span> lab-nginx</span>
       </div>
       <div class="masthead-right">
+        <span id="user" class="user" hidden><span class="user-name" id="user-name"></span><span class="role" id="user-role"></span></span>
         <span id="conn" class="conn"><span class="dot" aria-hidden="true"></span><span id="conn-text">Connecting</span></span>
         <button id="btn-pause" class="mh-btn" type="button" aria-pressed="false"><span data-icon="pause"></span><span class="label">Pause</span></button>
         <button id="btn-theme" class="mh-btn mh-icon" type="button" aria-label="Switch to dark theme" title="Switch theme"><span data-icon="moon"></span></button>
@@ -118,7 +126,7 @@
             <article class="panel col-6">
               <header class="panel-head"><h3>Top source addresses</h3><span class="text-muted small" id="ip-scope"></span></header>
               <table class="mini mini-flush">
-                <thead><tr><th scope="col">Source IP</th><th scope="col" class="num">Alerts</th><th scope="col" class="num hide-sm">Max risk</th><th scope="col">State</th><th scope="col" class="act"><span class="sr-only">Action</span></th></tr></thead>
+                <thead><tr><th scope="col">Source IP</th><th scope="col" class="num">Alerts</th><th scope="col" class="num hide-sm">Max risk</th><th scope="col">State</th><th scope="col" class="act requires-responder"><span class="sr-only">Action</span></th></tr></thead>
                 <tbody id="ip-body"></tbody>
               </table>
             </article>
@@ -129,6 +137,7 @@
         <section id="alerts" class="panel" aria-labelledby="h-alerts">
           <header class="panel-head">
             <h2 id="h-alerts">Alerts <span class="count" id="alert-count"></span></h2>
+            <span class="readonly-note text-muted small">Read-only access · actions need the Responder role</span>
             <div class="head-actions">
               <button id="btn-export" class="btn btn-sm" type="button"><span data-icon="download"></span>Export CSV</button>
               <button id="btn-refresh" class="btn btn-sm" type="button"><span data-icon="refresh"></span>Refresh</button>
@@ -165,7 +174,7 @@
             <table class="grid-table" id="alerts-table">
               <thead>
                 <tr>
-                  <th scope="col" class="c-check"><input type="checkbox" id="sel-all" aria-label="Select all alerts on this page"></th>
+                  <th scope="col" class="c-check requires-responder"><input type="checkbox" id="sel-all" aria-label="Select all alerts on this page"></th>
                   <th scope="col" data-sort="severity" class="sortable"><button type="button">Severity</button></th>
                   <th scope="col" data-sort="risk" class="sortable num"><button type="button">Risk</button></th>
                   <th scope="col" data-sort="rule" class="sortable"><button type="button">Alert</button></th>
@@ -173,7 +182,7 @@
                   <th scope="col" data-sort="ip" class="sortable"><button type="button">Source IP</button></th>
                   <th scope="col" data-sort="status" class="sortable hide-sm"><button type="button">Status</button></th>
                   <th scope="col" data-sort="time" class="sortable"><button type="button">Last seen</button></th>
-                  <th scope="col" class="c-act"><span class="sr-only">Actions</span></th>
+                  <th scope="col" class="c-act requires-responder"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody id="alerts-body"></tbody>
@@ -203,7 +212,7 @@
               <thead>
                 <tr>
                   <th scope="col">IP address</th><th scope="col">Origin</th><th scope="col" class="hide-sm">Reason</th>
-                  <th scope="col" class="hide-sm">Added</th><th scope="col">Expires</th><th scope="col" class="c-act"><span class="sr-only">Actions</span></th>
+                  <th scope="col" class="hide-sm">Added</th><th scope="col">Expires</th><th scope="col" class="c-act requires-responder"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody id="blocks-body"></tbody>
@@ -235,7 +244,7 @@
       <button type="button" role="tab" id="tab-raw" aria-controls="pane" aria-selected="false" data-tab="raw" tabindex="-1">Raw</button>
     </div>
     <div class="fly-body" id="pane" role="tabpanel" tabindex="0"></div>
-    <footer class="fly-foot" id="fly-foot"></footer>
+    <footer class="fly-foot requires-responder" id="fly-foot"></footer>
   </aside>
 
   <dialog id="confirm" class="modal" aria-labelledby="confirm-title" aria-describedby="confirm-text">

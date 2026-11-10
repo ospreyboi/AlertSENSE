@@ -4,3 +4,5 @@ sqlmodel
 python-dotenv
 httpx
 pytest
+authlib>=1.3,<2
+itsdangerous>=2.1
